@@ -16,6 +16,9 @@ ILUASQL="YES"
 ILUASEC="YES"
 ILPTY="YES"
 ISRLUA="NO"
+ITABLEUTILS="YES"
+IPGMOON="YES"
+ILPEG="YES"	 # this is a dependency for pgmoon
 
 INSTALLDIR="/opt/software/LuaScripts"
 
@@ -349,6 +352,76 @@ then
 	echo "                                                             "
 	echo "#############################################################"
 fi
+
+if [ "$IERRORH" == "YES" ]
+then
+	# Also get the errorH module
+	echo "#############################################################"
+	echo "                                                             "
+	echo "### Download ErrorH----------------------------------------->"
+	echo "                                                             "
+	echo "#############################################################"
+	cd $INSTALLDIR
+	wget https://raw.githubusercontent.com/aryajur/errorH/master/src/errorH.lua
+	echo "#############################################################"
+	echo "                                                             "
+	echo "<-------------Finished downloading ErrorH------------------->"
+	echo "                                                             "
+	echo "#############################################################"
+fi
+
+if [ "$IPGMOON" == "YES" ]
+then
+	# Download and build pgmoon
+	echo "#############################################################"
+	echo "                                                             "
+	echo "### Download and install pgmoon----------------------------->"
+	echo "                                                             "
+	echo "#############################################################"
+	cd $INSTALLDIR
+	wget https://github.com/leafo/pgmoon/archive/master.tar.gz
+	tar zxf master.tar.gz
+	cd pgmoon-master
+
+
+	# Transfer files to Lua directory
+	cp -r pgmoon $INSTALLDIR/.
+	cd ..
+	rm -rf pgmoon-master
+	rm -f *.tar.gz
+
+	echo "#############################################################"
+	echo "                                                             "
+	echo "<-------------Finished installing pgmoon-------------------->"
+	echo "                                                             "
+	echo "#############################################################"
+fi
+
+if [ "$ILPEG" == "YES" ]
+then
+	# Download and build LPEG
+	echo "#############################################################"
+	echo "                                                             "
+	echo "### Download and Build LPEG---------------------------->"
+	echo "                                                             "
+	echo "#############################################################"
+	cd $INSTALLDIR
+	wget https://www.inf.puc-rio.br/~roberto/lpeg/$LPEG.tar.gz
+	tar zxf $LPEG.tar.gz
+	cd $LPEG
+	make linux LUADIR=$INSTALLDIR/inc
+	cp lpeg.so $INSTALLDIR/.
+	cd ..
+	rm -rf $LPEG
+	rm -f *.tar.gz
+	echo "#############################################################"
+	echo "                                                             "
+	echo "<-------------Finished Building LPEG------------------->"
+	echo "                                                             "
+	echo "#############################################################"
+fi
+
+
 
 echo "DONE"
 echo "INSTALLATION DONE!"
