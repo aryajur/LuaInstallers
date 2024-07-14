@@ -1,21 +1,22 @@
 #!/bin/bash
 # Script to install the certificate renewal package
-# Run the script with the command:
-# > sudo sh ./Installer.sh
+# Run the script with the command: (The . first helps set environment variables in the caller environment see https://stackoverflow.com/questions/496702/can-a-shell-script-set-environment-variables-of-the-calling-shell)
+# > . ./Installer.sh
 
 ######################## CONFIGURATION SETTINGS ####################
 
 
 # Setup Flags
 ILUA="YES"
-ILUASHARED = "NO"
+ILUASHARED="NO"	
 ILUASOCKET="YES"
 ILFS="YES"
-ILUA_AWS="YES"
+ILUA_AWS="NO"
 ILUASQL="YES"
 ILUASEC="YES"
+ILUAOSSL="YES"
 ILPTY="YES"
-ISRLUA="NO"
+ISRLUA="NO"		
 ITABLEUTILS="YES"
 IPGMOON="YES"
 ILPEG="YES"	 # this is a dependency for pgmoon
@@ -23,6 +24,7 @@ ILPEG="YES"	 # this is a dependency for pgmoon
 INSTALLDIR="/opt/software/LuaScripts"
 
 LUAV="5.3.6"
+LUA="5.3"
 LUASOCKETSHA="5b18e475f38fcf28429b1cc4b17baee3b9793a62"
 CURPATH=$(pwd)
 LFSVER="1_7_0_2"
@@ -30,9 +32,12 @@ GCCLUAINC="-I$INSTALLDIR/inc"
 #echo $GCCLUAINC
 LUA_AWSSHA="a14d26ff35b3fad2b45ae07c242a2cf781ec90ae"	# From aryajur pull request
 LUASQLSHA="5e65ae41f87f545070f378e4882fa1ef87287fa5"
-OPENSSL="openssl-1.1.1g"
+OPENSSL="openssl-3.3.1"
 LUASECSHA="22eadbd20e1e9a53b0f55b38c731e04e935a9595"
 LPTY="lpty-1.2.2-1"
+LUAOSSL="rel-20220711"
+LPEG="lpeg-1.1.0"
+SRLUA="srlua-102"
 
 ###################################################################
 
@@ -87,12 +92,18 @@ then
 		sudo rm -rf $INSTALLDIR/inc
 	fi
 	mkdir $INSTALLDIR/inc
+	mkdir $INSTALLDIR/lib
 	cp lua-$LUAV/src/lauxlib.h $INSTALLDIR/inc/.
 	cp lua-$LUAV/src/lua.h $INSTALLDIR/inc/.
 	cp lua-$LUAV/src/luaconf.h $INSTALLDIR/inc/.
 	cp lua-$LUAV/src/lualib.h $INSTALLDIR/inc/.
+	cp lua-$LUAV/src/liblua.a $INSTALLDIR/lib/.
 	rm -rf lua-$LUAV
 	rm -f *.tar.gz
+	
+	echo "io.write('Adding module paths...') package.path = package.path..';/home/ubuntu/Lua/?.lua' package.cpath = package.cpath..';/home/ubuntu/Lua/?.so' print('DONE')" > $INSTALLDIR/initpaths.lua
+	
+	export LUA_INIT="@$INSTALLDIR/initpaths.lua"
 
 	echo "#############################################################"
 	echo "                                                             "
@@ -112,7 +123,7 @@ then
 	wget https://github.com/diegonehab/luasocket/archive/$LUASOCKETSHA.tar.gz
 	tar zxf $LUASOCKETSHA.tar.gz
 	cd luasocket-$LUASOCKETSHA
-	make linux LUAV=5.3 LUAINC_linux_base=$INSTALLDIR LUAINC_linux=$INSTALLDIR/inc LUAPREFIX_linux=$INSTALLDIR CDIR_linux=$INSTALLDIR LDIR_linux=$INSTALLDIR
+	make linux LUAV=$LUA LUAINC_linux_base=$INSTALLDIR LUAINC_linux=$INSTALLDIR/inc LUAPREFIX_linux=$INSTALLDIR CDIR_linux=$INSTALLDIR LDIR_linux=$INSTALLDIR
 	cd ..
 
 	# Transfer files to certRenew
@@ -230,7 +241,7 @@ then
 	echo "#############################################################"
 fi
 	
-if [ "$ILUASEC" == "YES" ]
+if [ "$ILUASEC" == "YES" ] || ["$ILUAOSSL" == "YES" ];
 then
 	# Download and build luasocket
 	echo "#############################################################"
@@ -238,15 +249,16 @@ then
 	echo "### Download and Build OpenSSL------------------------------>"
 	echo "                                                             "
 	echo "#############################################################"
+	cd $INSTALLDIR
 	wget http://www.openssl.org/source/$OPENSSL.tar.gz
 	tar zxf $OPENSSL.tar.gz
 	cd $OPENSSL
-	mkdir $INSTALLDIR/openssl
-	./config --prefix=$INSTALLDIR/openssl --openssldir=$INSTALLDIR/openssl shared
+	#mkdir $INSTALLDIR/openssl
+	./config #--prefix=$INSTALLDIR/openssl --openssldir=$INSTALLDIR/openssl shared
 	#./config shared
 	make
 	#make install#	cp *.so $INSTALLDIR/.
-	#cp *.so.1.1 $INSTALLDIR/.
+	cp *.so* $INSTALLDIR/.
 	cd ..
 
 	echo "#############################################################"
@@ -254,39 +266,96 @@ then
 	echo "<-------------Finished Setup OpenSSL------------------------>"
 	echo "                                                             "
 	echo "#############################################################"
-	echo "#############################################################"
-	echo "                                                             "
-	echo "### Download and Build LuaSec------------------------------->"
-	echo "                                                             "
-	echo "#############################################################"
+	
+	if [ "$ILUAOSSL" == "YES" ]
+	then
+		echo "#############################################################"
+		echo "                                                             "
+		echo "### Download and Build LuaOSSL------------------------------>"
+		echo "                                                             "
+		echo "#############################################################"
+		wget https://github.com/wahern/luaossl/archive/refs/tags/$LUAOSSL.tar.gz
+		tar zxf $LUAOSSL.tar.gz
+		cd luaossl-$LUAOSSL
+		
+		make all$LUA ALL_CFLAGS="-Wall -fPIC -I$INSTALLDIR/inc -I$INSTALLDIR/$OPENSSL/include" ALL_SOFLAGS="-Wall -shared -L$INSTALLDIR/$OPENSSL -L$INSTALLDIR"
+		mkdir $INSTALLDIR/openssl
+		mkdir $INSTALLDIR/openssl/x509
+		mkdir $INSTALLDIR/openssl/ssl
+		mkdir $INSTALLDIR/openssl/ocsp
+		cp src/$LUA/openssl.so $INSTALLDIR/_openssl.so
+		cp src/openssl.x509.lua $INSTALLDIR/openssl/x509.lua
+		cp src/openssl.rand.lua $INSTALLDIR/openssl/rand.lua
+		cp src/openssl.ssl.lua $INSTALLDIR/openssl/ssl.lua
+		cp src/openssl.pkcs12.lua $INSTALLDIR/openssl/pkcs12.lua
+		cp src/openssl.pkey.lua $INSTALLDIR/openssl/pkey.lua
+		cp src/openssl.pubkey.lua $INSTALLDIR/openssl/pubkey.lua
+		cp src/openssl.kdf.lua $INSTALLDIR/openssl/kdf.lua
+		cp src/openssl.des.lua $INSTALLDIR/openssl/des.lua
+		cp src/openssl.digest.lua $INSTALLDIR/openssl/digest.lua
+		cp src/openssl.hmac.lua $INSTALLDIR/openssl/hmac.lua
+		cp src/openssl.auxlib.lua $INSTALLDIR/openssl/auxlib.lua
+		cp src/openssl.bignum.lua $INSTALLDIR/openssl/bignum.lua
+		cp src/openssl.cipher.lua $INSTALLDIR/openssl/cipher.lua
+		cp src/openssl.x509.verify_param.lua $INSTALLDIR/openssl/x509/verify_param.lua
+		cp src/openssl.x509.name.lua $INSTALLDIR/openssl/x509/name.lua
+		cp src/openssl.x509.store.lua $INSTALLDIR/openssl/x509/store.lua
+		cp src/openssl.x509.crl.lua $INSTALLDIR/openssl/x509/crl.lua
+		cp src/openssl.x509.csr.lua $INSTALLDIR/openssl/x509/csr.lua
+		cp src/openssl.x509.extension.lua $INSTALLDIR/openssl/x509/extension.lua
+		cp src/openssl.x509.altname.lua $INSTALLDIR/openssl/x509/altname.lua
+		cp src/openssl.x509.chain.lua $INSTALLDIR/openssl/x509/chain.lua
+		cp src/openssl.ssl.context.lua $INSTALLDIR/openssl/ssl/context.lua
+		cp src/openssl.ocsp.basic.lua $INSTALLDIR/openssl/ocsp/basic.lua
+		cp src/openssl.ocsp.response.lua $INSTALLDIR/openssl/ocsp/response.lua
+		
+		cd ..
+		rm -rf luaossl-$LUAOSSL
+		rm -f *.tar.gz
 
-	wget https://github.com/brunoos/luasec/archive/$LUASECSHA.tar.gz
-	tar zxf $LUASECSHA.tar.gz
-	cd luasec-$LUASECSHA
-	#make linux INC_PATH="-I$INSTALLDIR/inc -I$INSTALLDIR/openssl/inc" LIB_PATH="-L$INSTALLDIR -L$INSTALLDIR/openssl/lib" LUAPATH=$INSTALLDIR LUACPATH=$INSTALLDIR
-	# Patch the Luasec Makefile to add rpath . (Did not need to do it on some systems)
-	# $INSTALLDIR/lua $CURPATH/updateLuaSecMakeFile.lua $INSTALLDIR/luasec-$LUASECSHA/src/Makefile	
-	make linux INC_PATH=-I$INSTALLDIR/inc LIB_PATH=-L$INSTALLDIR LUAPATH=$INSTALLDIR LUACPATH=$INSTALLDIR
-	cp src/*.so $INSTALLDIR/.
-	cp src/ssl.lua $INSTALLDIR/.
-	if [ ! -d "$INSTALLDIR/ssl" ]; then
-		mkdir $INSTALLDIR/ssl
-	else
-		rm -rf $INSTALLDIR/ssl/*
+		echo "#############################################################"
+		echo "                                                             "
+		echo "<-------------Finished Setup LuaOSSL------------------------>"
+		echo "                                                             "
+		echo "#############################################################"
 	fi
-	cp src/https.lua $INSTALLDIR/ssl/.
-	cd ..
-	rm -rf luasec-$LUASECSHA
-	rm -f *.tar.gz
+	
+	if [ "$ILUASEC" == "YES" ]
+	then
+		echo "#############################################################"
+		echo "                                                             "
+		echo "### Download and Build LuaSec------------------------------->"
+		echo "                                                             "
+		echo "#############################################################"
+
+		wget https://github.com/brunoos/luasec/archive/$LUASECSHA.tar.gz
+		tar zxf $LUASECSHA.tar.gz
+		cd luasec-$LUASECSHA
+		#make linux INC_PATH="-I$INSTALLDIR/inc -I$INSTALLDIR/openssl/inc" LIB_PATH="-L$INSTALLDIR -L$INSTALLDIR/openssl/lib" LUAPATH=$INSTALLDIR LUACPATH=$INSTALLDIR
+		# Patch the Luasec Makefile to add rpath . (Did not need to do it on some systems)
+		$INSTALLDIR/lua $CURPATH/updateLuaSecMakeFile.lua $INSTALLDIR/luasec-$LUASECSHA/src/Makefile	
+		make linux INC_PATH=-I$INSTALLDIR/inc LIB_PATH=-L$INSTALLDIR LUAPATH=$INSTALLDIR LUACPATH=$INSTALLDIR
+		cp src/*.so $INSTALLDIR/.
+		cp src/ssl.lua $INSTALLDIR/.
+		if [ ! -d "$INSTALLDIR/ssl" ]; then
+			mkdir $INSTALLDIR/ssl
+		else
+			rm -rf $INSTALLDIR/ssl/*
+		fi
+		cp src/https.lua $INSTALLDIR/ssl/.
+		cd ..
+		rm -rf luasec-$LUASECSHA
+		rm -f *.tar.gz
+		echo "#############################################################"
+		echo "                                                             "
+		echo "<-------------Finished Setup LuaSec------------------------->"
+		echo "                                                             "
+		echo "#############################################################"
+	fi
 	
 	rm -rf $OPENSSL
 	rm -f *.tar.gz
 
-	echo "#############################################################"
-	echo "                                                             "
-	echo "<-------------Finished Setup LuaSec------------------------->"
-	echo "                                                             "
-	echo "#############################################################"
 fi
 
 if [ "$ILPTY" == "YES" ]
@@ -298,14 +367,14 @@ then
 	echo "                                                             "
 	echo "#############################################################"
 	cd $INSTALLDIR
-	cp $CURPATH/../Software/$LPTY.tar.gz $INSTALLDIR/.
-	tar zxf $LPTY.tar.gz
-	cd $LPTY
+	wget https://codeberg.org/gnarz/lpty/archive/master.tar.gz
+	tar zxf master.tar.gz
+	cd lpty/src
 	$INSTALLDIR/lua mkinc.lua expectsrc
 	gcc -fPIC -Wall -I$INSTALLDIR/inc -c lpty.c -o lpty.o
 	gcc -shared -o lpty.so -L$INSTALLDIR lpty.o
 	cp lpty.so $INSTALLDIR/.
-	cd ..
+	cd ../..
 	rm -rf $LPTY
 	rm -f *.tar.gz
 
@@ -323,11 +392,17 @@ then
 	echo "### Download and Build SRLua-------------------------------->"
 	echo "                                                             "
 	echo "#############################################################"
-	cd $CURPATH/srlua
-	make LUA_TOPDIR=$INSTALLDIR/ LUA_INCDIR=$INSTALLDIR/inc/ LUA_LIBDIR=$INSTALLDIR/
-	# Convert KogenceIfaceApp to executable
-	./srglue srlua ../KogenceIfaceApp.lua $INSTALLDIR/KogenceIfaceApp; chmod +x $INSTALLDIR/KogenceIfaceApp
-
+	cd $INSTALLDIR
+	wget https://web.tecgraf.puc-rio.br/~lhf/ftp/lua/ar/$SRLUA.tar.gz
+	tar zxf $SRLUA.tar.gz
+	cd $SRLUA
+	make bin LUA_TOPDIR=$INSTALLDIR/ LUA_INCDIR=$INSTALLDIR/inc LUA_LIBDIR=$INSTALLDIR/lib
+	
+	cd ..
+	cp $SRLUA/srlua $INSTALLDIR/.
+	cp $SRLUA/srglue $INSTALLDIR/.
+	rm -rf $SRLUA
+	rm -f *.tar.gz
 
 	echo "#############################################################"
 	echo "                                                             "
@@ -425,4 +500,6 @@ fi
 
 echo "DONE"
 echo "INSTALLATION DONE!"
+
+echo "Make sure LUA_INIT environment variable is set to '@$INSTALLDIR/initpaths.lua'"
 
